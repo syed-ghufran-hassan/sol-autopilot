@@ -1,36 +1,38 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# sol-autopilot
 
-## Getting Started
+> Non-custodial Solana financial autopilot: DCA + rebalance rules
+> executed by Jupiter programs. No AI, no custody, $0 infra.
+> **Devnet only — no real funds.**
 
-First, run the development server:
+## What it does
+
+- **Portfolio dashboard** — connect Phantom, see every SPL token + SOL with mainnet-estimate USD values
+- **DCA rules** — create on-chain DCA accounts via Jupiter's DCA program on devnet
+- **Rebalance** — define target weights; the app builds a batched swap transaction you sign
+
+## What it deliberately doesn't do
+
+- No AI / LLM advisor
+- No custody — the app never touches private keys
+- No custom Anchor program — Jupiter's devnet programs do the work
+- No paid infrastructure — every component has a free tier
+
+## Stack
+
+Next.js 16 · TypeScript · @solana/wallet-adapter · @solana/web3.js · Jupiter (DCA + Swap) · Vitest
+
+## Status
+
+🚧 **Stage 0 complete** — wallet gate on devnet, 31 tests passing.
+Stages 1–7 in progress. See build log on X: `[@your-handle]`
+
+## Limitations
+
+Devnet only. Jupiter's devnet pools have minimal liquidity — DCA *account creation* works; DCA *cycle execution* may fail with "no route." The full limitations section will be documented at launch (Stage 7).
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+npm install
+npm run dev          # http://localhost:3000
+npm run test:unit    # 31 tests
