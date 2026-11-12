@@ -24,7 +24,7 @@ Next.js 16 · TypeScript · @solana/wallet-adapter · @solana/web3.js · Jupiter
 ## Status
 
 🚧 **Stage 0 complete** — wallet gate on devnet, 31 tests passing.
-Stages 1–7 in progress. See build log on X: `[@your-handle]`
+Stages 1–7 in progress. See build log on X: `@SyedGhufranHas1`
 
 ## Limitations
 
