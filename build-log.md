@@ -469,4 +469,227 @@ Stage 1 (portfolio dashboard) starts tomorrow.
 
 ---
 
+## Stage 0 — CI Setup ✅
+
+### What shipped
+
+GitHub Actions workflow at `.github/workflows/test.yml` runs the unit test suite on every push to `main` and every pull request. Green badge visible on the repo README.
+
+### Files created
+
+```
+.github/workflows/test.yml    CI workflow (Node 22, npm ci --legacy-peer-deps, vitest)
+```
+
+### Workflow
+
+```yaml
+name: test
+
+'on':
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run unit tests
+        run: npm run test:unit
+```
+
+### Why `--legacy-peer-deps` is mandatory in CI
+
+The local `package-lock.json` was generated with `--legacy-peer-deps`. Without the flag in CI, `npm ci` fails on the same peer conflicts fixed locally:
+
+- `vite` missing → Vitest cannot start
+- `@testing-library/dom` missing → jest-dom cannot load
+- `bs58` missing → wallet adapter build fails
+
+Each of these was individually resolved in Stage 0 by installing the peer directly (see Issues 1, 2, 5). The CI flag is the equivalent for the whole dependency tree.
+
+### Why Node 22
+
+Local development runs Node 22.18.0. CI pins Node 22 to avoid drift. Node 20 would also pass; Node 18 is end-of-life for this stack.
+
+### Verification
+
+- Actions tab shows green checkmark on the `unit` job (~12s total)
+- Repo home page shows green `test passing` badge under the title
+- Every push to `main` re-runs the suite (fail-fast on regression)
+
+### What CI does NOT do
+
+- **No devnet integration tests.** GitHub-hosted runners share IPs, and the devnet faucet rate-limits per IP. Devnet integration scripts run locally only.
+- **No deployment.** Stage 7 adds a separate `deploy.yml` workflow for GitHub Pages. This workflow is test-only.
+- **No lint or type-check.** Deliberately scoped to tests. Can be added later by appending `- run: npm run lint` — but it would fail on the default `create-next-app` config without customizing ESLint, so it is deferred.
+
+---
+
+## Stage 0 — CI Issues Encountered
+
+### Issue 1 — "No event triggers defined in `on`" (the empty file)
+
+**Error:**
+
+```
+Annotations
+1 error
+Error
+No event triggers defined in `on`
+```
+
+**Cause:** The workflow file `.github/workflows/test.yml` was created with `touch`, which creates a **zero-byte empty file**. The YAML content was never written into it. GitHub Actions tried to parse an empty file, found no `on` block, and rejected it.
+
+Confirmed with:
+
+```bash
+ls -la .github/workflows/
+# -rw-rw-r-- 1 zee-tech zee-tech 0 Nov 13 02:25 test.yml
+#                                        ↑
+#                                   size is 0 bytes
+```
+
+**Fixes attempted before finding the real cause (in order):**
+
+1. Quoted the `'on'` key — did not help, because the file was still empty
+2. Added `workflow_dispatch` — did not help, because the file was still empty
+3. Checked for stray YAML files in `.github/workflows/` — folder was clean, only the empty file existed
+
+**Actual fix:** Write the full YAML content into the file in one command:
+
+```bash
+cat > .github/workflows/test.yml << 'EOF'
+name: test
+
+'on':
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - run: npm ci --legacy-peer-deps
+      - run: npm run test:unit
+EOF
+```
+
+Verify:
+
+```bash
+wc -l .github/workflows/test.yml
+# Expected: a positive number (22 in this case), not 0
+```
+
+**Lesson:** `touch` creates empty files. If a workflow file produces "no triggers" errors with valid-looking YAML in your editor, check the file size on disk with `ls -la`. Zero bytes is the culprit — and it is invisible in most editors because the tab is blank.
+
+### Issue 2 — The misleading error message
+
+**Why it misled:** The error "No event triggers defined in `on`" sounds like a YAML problem. It suggests the `on` key is malformed, misindented, or missing. In this case, the `on` key was missing entirely because the file was empty, but the error did not say *"this file is empty"* — it just reported the downstream symptom.
+
+**Lesson:** When a CI error mentions a specific YAML key, verify the file is not empty or truncated before inspecting the key itself. `wc -c file` should never return `0`.
+
+---
+
+## Stage 0 CI Lessons (condensed)
+
+1. `touch` creates empty files. Never trust a workflow file until `wc -l` returns a non-zero number.
+2. "No event triggers defined in `on`" is the error for both *malformed* `on` blocks and *empty files*. Check the file size first.
+3. Quote `'on'` in GitHub Actions YAML — it costs nothing and eliminates the YAML 1.1 boolean ambiguity.
+4. `npm ci --legacy-peer-deps` is required because the local `package-lock.json` was generated with that flag. Omitting it in CI reproduces every peer conflict the project already fixed.
+
+---
+
+## Tweet Drafts — CI Setup
+
+### Tweet CI.1 (shipped)
+
+```
+CI is green. ✅
+
+Every push to main now runs the test suite on Node 22.
+
+7 tests. 12 seconds. Zero cost.
+
+Repo badge: passing
+
+Next: Stage 1 (portfolio dashboard).
+```
+
+### Tweet CI.2 (the empty file bug)
+
+```
+Spent an hour on a CI error that said:
+
+"No event triggers defined in `on`"
+
+I checked the YAML. Valid.
+Quoted the `'on'` key. Valid.
+Added `workflow_dispatch`. Valid.
+
+Still failed.
+
+Then I ran `ls -la .github/workflows/`:
+
+-rw-rw-r-- 0 bytes  test.yml
+
+The file was empty. `touch` creates empty files. The YAML content was never written.
+
+Wrote it with `cat > ... << 'EOF'` and it ran in 12 seconds.
+
+Lesson: check `wc -c` before debugging YAML.
+```
+
+### Tweet CI.3 (the takeaway)
+
+```
+CI lessons from today:
+
+1. `touch` creates empty files. Check `wc -l` before debugging YAML.
+2. "No event triggers in `on`" is also the error for an empty file — not just a malformed one.
+3. `npm ci --legacy-peer-deps` in CI, or you reproduce every peer conflict locally.
+4. Node 22 matches local — no version drift.
+
+Documented in build-log.md.
+```
+
+---
+
+## Stage 0 CI Metrics
+
+| Metric | Value |
+| --- | --- |
+| Workflow file lines | 22 |
+| CI run duration | ~12s |
+| Tests run in CI | 7 |
+| CI issues encountered | 2 (empty file, misleading error) |
+| Fix commits | 3 |
+| Total Stage 0 CI time | ~1 hour |
+
 *End of Stage 0. Stage 1 appended below when complete.*
