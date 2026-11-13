@@ -692,4 +692,437 @@ Documented in build-log.md.
 | Fix commits | 3 |
 | Total Stage 0 CI time | ~1 hour |
 
-*End of Stage 0. Stage 1 appended below when complete.*
+# Stage 1 — Portfolio Dashboard ✅
+
+## What shipped
+
+- SOL + SPL token holdings with amounts and decimals normalized
+- USD values from Jupiter Price API v3 (mainnet estimate)
+- Refresh button, empty state, error state
+- Responsive Tailwind UI (forced light mode for MVP clarity)
+- 24 new unit tests (total: 31)
+- CI runs 31 tests automatically
+
+## Files created
+
+src/lib/format.ts                 4 number formatting helpers
+src/chain/rpc.ts                  devnet Connection factory
+src/chain/assets.ts               pure transforms + one RPC call
+src/lib/prices.ts                 Jupiter v3 price API with 30s cache
+src/hooks/usePortfolio.ts         React hook
+src/components/TokenTable.tsx     holdings table
+tests/unit/assets.test.ts         24 tests
+
+## Files replaced
+
+src/app/page.tsx                  dashboard layout
+src/app/globals.css               forced light mode / tailwind import
+postcss.config.mjs                webpack-compatible PostCSS config
+
+## Test results
+
+Test Files  2 passed (2)
+     Tests  31 passed (31)
+  Duration  ~3s
+
+## Architecture note
+
+The chain layer (`src/chain/assets.ts`) splits into two halves:
+
+- **Pure functions** — `buildHoldings`, `getMintsFromRaw`, `computeTotalUsd` — take a `RawPortfolio` object and return a `Holding[]`. These are what the 24 tests cover. No network, no wallet, no async.
+- **One network function** — `fetchRawPortfolio` — is two `web3.js` calls wrapped in `Promise.all`. Verified by browser checks.
+
+This pattern is repeated in every subsequent stage: pure logic is testable in milliseconds, network access is a thin wrapper around it.
+
+---
+
+## Stage 1 Issues Encountered
+
+### Issue 1 — Stale Stage 0 test broke when page.tsx was replaced
+
+**Symptom:**
+```
+FAIL tests/unit/wallet-gate.test.tsx > ... > shows the full pubkey and "Connected · devnet" badge when connected
+TestingLibraryElementError: Unable to find an element with the text: /connected · devnet/i
+```
+
+**Cause:** The Stage 1 `page.tsx` replaced the "Connected · devnet" badge with the Stage 1 layout ("Portfolio value · mainnet estimate"). The Stage 0 test still asserted against the old string.
+
+**Fix:** Updated three assertions in `tests/unit/wallet-gate.test.tsx` and added `vi.mock('@/chain/assets')` and `vi.mock('@/lib/prices')` to prevent the tests from trying to fetch live devnet data.
+
+**Lesson:** When you change what a page renders, the tests that asserted against the old render are wrong, not the page. Every page-level test must mock the chain layer.
+
+---
+
+### Issue 2 — Vite config warning (deferred from Stage 0)
+
+**Symptom:**
+```
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`
+- `__dirname` (vitest.config.mts:14:32). Use `import.meta.dirname` instead
+```
+
+**Cause:** `__dirname` is a CommonJS global. Once the config became `.mts` (Stage 0 Issue 3), the warning became permanent.
+
+**Fix:** In `vitest.config.mts`, changed `path.resolve(__dirname, ...)` to `path.resolve(import.meta.dirname, ...)`.
+
+---
+
+### Issue 3 — Jupiter Price API v2 returned empty (deprecated Sep 30, 2025)
+
+**Symptom:** The SOL row showed amount `4.9887` but value `—`. Portfolio total was `$0.00`. The browser console showed no errors.
+
+**Diagnostic:**
+```bash
+curl -s "https://lite-api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112"
+# (empty response — 200 status, zero bytes)
+```
+
+**Cause:** Jupiter shut down Price API v2 on September 30, 2025. The endpoint returns an empty body instead of an error. `fetchPrices` saw a 200, tried to parse `body.data` (undefined in an empty response), silently returned `null` for every mint.
+
+**Fix:** Migrate to Price API v3 (`/price/v3`). Response is flat, keyed by mint: `{ [mint]: { usdPrice: number } }`. No `data` wrapper.
+
+**Lesson:** Deprecated APIs that return empty (not 404) fail silently in code with `try/catch`. A 200 with an empty body is worse than a 500 — it looks like success.
+
+---
+
+### Issue 4 — Tailwind classes not applying (Turbopack-only plugin under webpack)
+
+**Symptom:** `max-w-4xl mx-auto` and `flex items-center justify-between` had no effect. The page rendered as unstyled HTML (everything stacked vertically and stuck to the left edge).
+
+**Cause:** The Next.js 16 scaffold installed `@tailwindcss/turbopack` — a plugin that only runs when Turbopack is the bundler. At Stage 0 the project switched to `next dev --webpack` to fix the Solana wallet adapter hydration issue. With webpack running, the Turbopack plugin is never invoked, no `postcss.config.mjs` existed to replace it, and `@import "tailwindcss"` compiled to zero CSS.
+
+**Fix:**
+1. `npm i -D --legacy-peer-deps @tailwindcss/postcss postcss`
+2. Created `postcss.config.mjs` with `plugins: { "@tailwindcss/postcss": {} }`
+
+**Lesson:** Every bundler-level config (`tailwind`, `postcss`, `vitest`) is bound to the bundler that generated it. When you change the bundler, audit every config that assumes it.
+
+---
+
+### Issue 5 — Dark mode text contrast (black text on black background)
+
+**Symptom:** After fixing Tailwind, the token table rows showed invisible text. The background was black (from OS dark mode), but the text was explicitly styled black (`text-neutral-900`).
+
+**Cause:** The default Next.js `globals.css` includes a `@media (prefers-color-scheme: dark)` block that turns the body background black. The app used hardcoded light-mode text colors.
+
+**Fix:** Overwrote `globals.css` to force a light mode background (`background-color: #ffffff`) and added `bg-white` to the TokenTable wrapper.
+
+**Lesson:** Mixing Tailwind utility classes with default Next.js CSS variables causes contrast bugs. For a devnet MVP, forcing a single theme removes an entire class of styling issues.
+
+---
+
+## Stage 1 Lessons (condensed)
+
+1. **Pure transforms are the right unit to test.** `buildHoldings(raw, prices)` has no dependencies. Every edge case is a 3-line test.
+2. **A 200 with an empty body is worse than a 500.** When a network call fails, log the raw response in dev.
+3. **Page changes break page tests.** Expected. Update the test to assert against the new render.
+4. **Bundler changes cascade.** Disabling Turbopack fixed the wallet adapter but silently broke Tailwind, because the scaffolded plugin was Turbopack-specific.
+
+---
+
+## Tweet Drafts — Stage 1
+
+### Tweet 1.1 (shipped)
+```
+Stage 1 done. ✅
+
+Portfolio dashboard on devnet:
+• Reads SOL + every SPL token
+• Normalizes decimals
+• Fetches USD from Jupiter's price API
+• Mainnet-estimate label so nobody gets confused about devnet prices
+
+31 tests passing. CI green. Cost still $0.
+```
+
+### Tweet 1.2 (the architecture)
+```
+The most useful split in sol-autopilot so far:
+
+`buildHoldings(raw, prices) → Holding[]`
+
+Pure. No RPC. No wallet. No async.
+
+Every edge case is a 3-line test:
+• zero-balance token → ignored
+• unknown mint → truncated symbol
+• missing price → null USD
+
+The one RPC call is 6 lines wrapped around it.
+Pure logic = 24 tests. Network = 0.
+```
+
+### Tweet 1.3 (the dead API)
+```
+Portfolio was showing "—" for SOL value.
+
+Wallet connected. Balance read correctly (4.98 SOL). Total stuck at $0.00.
+
+Ran curl against Jupiter's price endpoint:
+→ empty response. No error. Just nothing.
+
+Turns out Price API v2 was shut down Sept 30, 2025. My try/catch saw a "successful" 200 response, parsed `body.data` as undefined, and returned null.
+
+Silent failure. The worst kind. Migrated to /price/v3.
+```
+
+### Tweet 1.4 (the Tailwind bundler mismatch)
+```
+Spent an hour wondering why Tailwind classes weren't applying. The page was just left-aligned plain HTML.
+
+Root cause: When I disabled Turbopack at Stage 0 to fix the Solana wallet adapter, I broke the Tailwind plugin.
+
+The Next.js scaffold installed `@tailwindcss/turbopack`. With webpack running, it silently did nothing.
+
+Fix: installed `@tailwindcss/postcss` and created a `postcss.config.mjs`. Bundler changes cascade.
+```
+
+### Tweet 1.5 (recap)
+```
+Stage 1 recap:
+
+Shipped:
+• Full portfolio dashboard
+• 24 new tests (31 total)
+• Jupiter v3 integration
+• Forced light mode for MVP consistency
+
+Cost: $0
+Time: ~4 hours
+Bugs: 5 (stale test, deprecated API, bundler mismatch, dark mode contrast, config warning)
+
+Stage 2 (DCA account creation) starts next.
+```
+
+---
+
+## Stage 1 Metrics
+
+| Metric | Value |
+| --- | --- |
+| New files | 6 |
+| Files replaced | 3 |
+| New tests | 24 |
+| Total tests | 31 |
+| CI time | ~14s |
+| Bugs | 5 |
+| Cost | $0 |
+| Time | ~4 hours |
+
+## What shipped
+
+- SOL + SPL token holdings with amounts and decimals normalized
+- USD values from Jupiter Price API (mainnet estimate — devnet SOL has no real price)
+- Refresh button, empty state, error state
+- 24 new unit tests (total: 31)
+- CI now runs 31 tests
+
+## Files created
+
+src/lib/format.ts                 4 number formatting helpers
+src/chain/rpc.ts                  devnet Connection factory
+src/chain/assets.ts               pure transforms + one RPC call
+src/lib/prices.ts                 Jupiter price API with 30s cache
+src/hooks/usePortfolio.ts         React hook
+src/components/TokenTable.tsx     holdings table
+tests/unit/assets.test.ts         24 tests
+
+## Files replaced
+
+src/app/page.tsx                  dashboard layout
+
+## Test results
+
+Test Files  2 passed (2)
+     Tests  31 passed (31)
+  Duration  ~3s
+
+## Architecture note
+
+The chain layer (`src/chain/assets.ts`) splits into two halves:
+
+- **Pure functions** — `buildHoldings`, `getMintsFromRaw`, `computeTotalUsd` — take a `RawPortfolio` object and return a `Holding[]`. These are what the 24 tests cover. No network, no wallet, no async.
+- **One network function** — `fetchRawPortfolio` — is two `web3.js` calls wrapped in `Promise.all`. Not unit-tested; verified by browser checks.
+
+This pattern is repeated in every subsequent stage: pure logic is testable in milliseconds, network access is a thin wrapper around it.
+
+## Price handling
+
+Devnet SOL has no real price. The app fetches mainnet SOL price via Jupiter's keyless endpoint and labels every USD value as "mainnet estimate." Stablecoins (USDC, USDT) are hard-coded to $1 in `FALLBACK_PRICES`. Unknown mints return `usdValue: null` and render as `—`.
+
+Deliberate design choice: show an honest estimate with a clear label, not a fake "real" number.
+
+---
+
+## Stage 1 Issues Encountered
+
+### Issue 1 — Stale Stage 0 test broke when page.tsx was replaced
+
+**Error:**
+
+```
+FAIL  tests/unit/wallet-gate.test.tsx > ... > shows the full pubkey and
+      "Connected · devnet" badge when connected
+TestingLibraryElementError: Unable to find an element with the text:
+/connected · devnet/i
+```
+
+**Cause:** The Stage 1 `page.tsx` replaced the "Connected · devnet" badge with the Stage 1 layout ("Portfolio value · mainnet estimate"). The Stage 0 test still asserted against the old string. The rendered DOM confirmed the new UI was working — the test was just stale.
+
+**Fix:** Updated three assertions in `tests/unit/wallet-gate.test.tsx`:
+
+- `getByText(/connected · devnet/i)` → `getByText(/portfolio value · mainnet estimate/i)`
+- `queryByText(/connected · devnet/i)` → `queryByText(/portfolio value · mainnet estimate/i)`
+- Same for the "connected" test
+
+Also added `vi.mock('@/chain/assets', ...)` and `vi.mock('@/lib/prices', ...)` at the top of the test file. The Home component now calls `usePortfolio`, which hits the real devnet RPC. Without the mock, tests would be slow and network-dependent. The mock returns an empty portfolio synchronously.
+
+**Lesson:** When you change what a page renders, the tests that asserted against the old render are wrong, not the page. But the *reason* they broke is worth understanding — the `vi.mock` requirement for the chain layer is not obvious until the tests time out or fail from a network error.
+
+**Rule going forward:** every page-level test mocks the chain layer. The chain layer itself is tested separately by `tests/unit/assets.test.ts` with pure fixtures.
+
+---
+
+### Issue 2 — Vite config warning (deferred from Stage 0)
+
+**Warning:**
+
+```
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`
+- `__dirname` (vitest.config.mts:14:32). Use `import.meta.dirname` instead
+```
+
+**Cause:** `__dirname` is a CommonJS global. Once the config became `.mts` (Stage 0 Issue 3), the warning became permanent.
+
+**Fix:** In `vitest.config.mts`, change line 14:
+
+```ts
+// Before
+alias: { '@': path.resolve(__dirname, './src') },
+
+// After
+alias: { '@': path.resolve(import.meta.dirname, './src') },
+```
+
+**Lesson:** Follow through on deferred warnings immediately. A one-line fix at Stage 0 would have saved the reminder.
+
+---
+
+### Issue 3 — Jupiter Price API v2 returned empty (deprecated Sep 30, 2025)
+
+**Symptom:** After connecting the wallet and refreshing, the SOL row
+showed amount `4.9887` but value `—`. Portfolio total was `$0.00`.
+
+**Diagnostic:**
+```bash
+curl -s "https://lite-api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112"
+# (empty response — 200 status, zero bytes)
+
+## Stage 1 Lessons
+
+1. **Pure transforms are the right unit to test.** `buildHoldings(raw, prices) → Holding[]` has no dependencies. Every edge case (zero balance, null price, unknown mint) is a one-line test.
+2. **Mainnet-estimate labelling is honest.** Devnet has no real prices. Showing `$198.42` without a label would mislead.
+3. **Every page test mocks the chain layer.** Otherwise the test depends on network state.
+4. **Page changes break page tests.** Expected. Update the test to assert against the new render, not the old.
+5. **A 200 with an empty body is worse than a 500.** Silence is a bug.
+   When a network call fails, log the raw response in dev. The
+   `console.error` in the catch block cost 5 seconds to add and would
+   have saved 30 minutes of debugging.
+
+---
+
+## Tweet Drafts — Stage 1
+
+### Tweet 1.1 (shipped)
+
+```
+Stage 1 done. ✅
+
+Portfolio dashboard on devnet:
+• Reads SOL + every SPL token
+• Normalizes decimals
+• Fetches USD from Jupiter's keyless price API
+• Mainnet-estimate label so nobody gets confused about devnet prices
+
+31 tests passing. CI green. Cost still $0.
+```
+
+### Tweet 1.2 (the architecture)
+
+```
+The most useful split in sol-autopilot so far:
+
+`buildHoldings(raw, prices) → Holding[]`
+
+Pure. No RPC. No wallet. No async.
+
+Every edge case is a 3-line test:
+• zero-balance token → ignored
+• unknown mint → truncated symbol
+• missing price → null USD
+
+The one RPC call is 6 lines wrapped around it.
+
+Pure logic = 24 tests. Network = 0.
+```
+
+### Tweet 1.3 (the honest label)
+
+```
+Devnet SOL has no real price.
+
+I could have hidden it. Hard-coded $0. Displayed "—". Or just not shown USD.
+
+Instead I fetch mainnet SOL price via Jupiter and label every USD value as "mainnet estimate."
+
+Honest beats clever. Every time.
+```
+
+### Tweet 1.4 (the stale test — this is a good tweet)
+
+```
+Adding a portfolio dashboard broke 1 of my 7 existing tests.
+
+Not because the portfolio was buggy.
+Because the old page said "Connected · devnet" and the new page says "Portfolio value · mainnet estimate."
+
+The test was asserting against the old UI.
+
+Wrote it down: page changes break page tests. Update the test, not the page.
+```
+
+### Tweet 1.5 (recap)
+
+```
+Stage 1 recap:
+
+Shipped:
+• Full portfolio dashboard
+• 24 new tests (31 total)
+• Jupiter price integration with 30s cache
+• Empty / error / populated states
+
+Cost: $0
+Time: ~3 hours
+Bugs: 2 (stale test, deferred warning)
+
+Stage 2 (DCA account creation) starts next.
+```
+
+---
+
+## Stage 1 Metrics
+
+| Metric | Value |
+| --- | --- |
+| New files | 6 |
+| Files replaced | 1 |
+| New tests | 24 |
+| Total tests | 31 |
+| CI time | ~14s |
+| Bugs | 2 (self-inflicted) |
+| Cost | $0 |
+| Time | ~3 hours |
+
+

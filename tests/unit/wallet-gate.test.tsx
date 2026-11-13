@@ -2,9 +2,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
 
-// --- Mock the wallet adapter BEFORE importing components ----------------
-// Every component reads from this hook, so mocking it lets us simulate
-// "disconnected" and "connected" states without a real browser wallet.
+// Mock the chain layer to avoid real RPC calls in tests
+vi.mock('@/chain/assets', () => ({
+  SOL_MINT: 'So11111111111111111111111111111111111111112',
+  USDC_MINT_DEVNET: 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr',
+  USDT_MINT_DEVNET: 'EJwZgeZrdC8TXTQbQBoL6bfuAnFUUy1PVCMB4DYPzVaS',
+  buildHoldings: vi.fn(() => []),
+  computeTotalUsd: vi.fn(() => 0),
+  fetchRawPortfolio: vi.fn(async () => ({ solLamports: 0, tokenAccounts: [] })),
+  getMintsFromRaw: vi.fn(() => []),
+}));
+
+vi.mock('@/lib/prices', () => ({
+  fetchPrices: vi.fn(async () => ({})),
+}));
 
 const mockUseWallet = vi.fn();
 
@@ -19,7 +30,6 @@ vi.mock('@solana/wallet-adapter-react-ui', () => ({
   WalletModalProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-// Import AFTER mocks (Vitest hoists vi.mock, so this is for readability).
 import Home from '@/app/page';
 import { WalletButton } from '@/components/WalletButton';
 
@@ -54,7 +64,7 @@ describe('Stage 0 — wallet gate', () => {
   });
 
   // ---------------------------------------------------------------------
-  // Home page
+  // Home page (updated for Stage 1 layout)
   // ---------------------------------------------------------------------
 
   it('shows the "connect a wallet" prompt when disconnected', () => {
@@ -63,16 +73,16 @@ describe('Stage 0 — wallet gate', () => {
     expect(screen.getByText(/connect a wallet to get started/i)).toBeInTheDocument();
   });
 
-  it('does NOT show the full pubkey panel when disconnected', () => {
+  it('does NOT show the portfolio panel when disconnected', () => {
     mockUseWallet.mockReturnValue({ connected: false, publicKey: null });
     render(<Home />);
-    expect(screen.queryByText(/connected · devnet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/portfolio value · mainnet estimate/i)).not.toBeInTheDocument();
   });
 
-  it('shows the full pubkey and "Connected · devnet" badge when connected', () => {
+  it('shows the full pubkey and portfolio panel when connected', () => {
     mockUseWallet.mockReturnValue({ connected: true, publicKey: TEST_PUBKEY });
     render(<Home />);
-    expect(screen.getByText(/connected · devnet/i)).toBeInTheDocument();
+    expect(screen.getByText(/portfolio value · mainnet estimate/i)).toBeInTheDocument();
     expect(screen.getByText(TEST_PUBKEY.toBase58())).toBeInTheDocument();
   });
 
