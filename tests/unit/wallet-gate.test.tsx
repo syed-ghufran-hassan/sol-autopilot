@@ -2,7 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
 
-// Mock the chain layer to avoid real RPC calls in tests
+// Mock next/link to provide BOTH default and named exports
+vi.mock('next/link', () => {
+  const MockLink = ({ children, href }: { children: React.ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  );
+  return {
+    default: MockLink,
+    Link: MockLink,
+  };
+});
+
+// Mock chain and price layers
 vi.mock('@/chain/assets', () => ({
   SOL_MINT: 'So11111111111111111111111111111111111111112',
   USDC_MINT_DEVNET: 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr',
@@ -35,14 +46,10 @@ import { WalletButton } from '@/components/WalletButton';
 
 const TEST_PUBKEY = new PublicKey('7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU');
 
-describe('Stage 0 — wallet gate', () => {
+describe('Stage 0 & 1 — Wallet Gate & Portfolio', () => {
   beforeEach(() => {
     mockUseWallet.mockReset();
   });
-
-  // ---------------------------------------------------------------------
-  // WalletButton
-  // ---------------------------------------------------------------------
 
   it('renders the wallet button in the disconnected state', () => {
     mockUseWallet.mockReturnValue({ connected: false, publicKey: null });
@@ -62,10 +69,6 @@ describe('Stage 0 — wallet gate', () => {
     const expected = `${TEST_PUBKEY.toBase58().slice(0, 4)}…${TEST_PUBKEY.toBase58().slice(-4)}`;
     expect(screen.getByText(expected)).toBeInTheDocument();
   });
-
-  // ---------------------------------------------------------------------
-  // Home page (updated for Stage 1 layout)
-  // ---------------------------------------------------------------------
 
   it('shows the "connect a wallet" prompt when disconnected', () => {
     mockUseWallet.mockReturnValue({ connected: false, publicKey: null });

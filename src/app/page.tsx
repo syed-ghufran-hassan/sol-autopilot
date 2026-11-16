@@ -7,6 +7,7 @@ import { WalletButton } from '@/components/WalletButton';
 import { TokenTable } from '@/components/TokenTable';
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { formatUsd } from '@/lib/format';
+import {Link} from 'next/link';
 
 export default function Home() {
   const { connected, publicKey } = useWallet();
@@ -17,7 +18,10 @@ export default function Home() {
       <header className="flex items-center justify-between max-w-4xl mx-auto mb-12">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">sol-autopilot</h1>
-          <p className="text-sm text-neutral-500 mt-1">devnet · stage 1 — portfolio</p>
+          <p className="text-sm text-neutral-500 mt-1">
+            devnet · stage 2 — portfolio + DCA ·{' '}
+            <Link href="/dca" className="underline hover:text-neutral-900">Create DCA →</Link>
+          </p>
         </div>
         <WalletButton />
       </header>

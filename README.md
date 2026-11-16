@@ -23,16 +23,39 @@ Next.js 16 · TypeScript · @solana/wallet-adapter · @solana/web3.js · Jupiter
 
 ## Status
 
-🚧 **Stage 0 complete** — wallet gate on devnet, 31 tests passing.
-Stages 1–7 in progress. See build log on X: `@SyedGhufranHas1`
+🚧 **Stage 2 complete** — Wallet gate, portfolio dashboard, and DCA contract layer on devnet. **53 tests passing.**
+Stages 3–7 in progress. Follow the build log on X: `@SyedGhufranHas1`
 
-## Limitations
+## Limitations (Devnet only)
 
-Devnet only. Jupiter's devnet pools have minimal liquidity — DCA *account creation* works; DCA *cycle execution* may fail with "no route." The full limitations section will be documented at launch (Stage 7).
+- **Jupiter DCA is mainnet-only.** The contract layer is built and unit-tested, but the actual DCA program is not deployed on devnet. The devnet integration script uses a mock SOL transfer to prove the signing pipeline works.
+- **Devnet faucet is closed.** The public RPC faucet returns `410 Gone`. You must fund wallets manually via [faucet.solana.com](https://faucet.solana.com).
+- **Prices are mainnet estimates.** Devnet SOL has no real price. The app fetches mainnet prices and labels them clearly.
 
+## Running the devnet integration script
+
+Because the RPC faucet is closed and the DCA program is mainnet-only, the integration script uses a pre-funded wallet and a mock transaction to prove the pipeline works.
+
+1. Generate a Test Wallet
+
+
+```bash
+ node -e "const { Keypair } = require('@solana/web3.js'); const fs = require('fs'); const kp = Keypair.generate(); fs.writeFileSync('test-wallet.json', JSON.stringify(Array.from(kp.secretKey))); console.log('Public Key:', kp.publicKey.toBase58());" 
+```
+
+2. Fund the wallet 
+
+Copy the printed public key and request 2 SOL at faucet.solana.com (ensure Devnet is selected).
 ## Development
+
+3. Run the script
+
+```bash
+npm run test:devnet
+```
 
 ```bash
 npm install
 npm run dev          # http://localhost:3000
-npm run test:unit    # 31 tests
+npm run test:unit    # 53 tests
+```

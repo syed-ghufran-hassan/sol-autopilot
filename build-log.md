@@ -1125,4 +1125,221 @@ Stage 2 (DCA account creation) starts next.
 | Cost | $0 |
 | Time | ~3 hours |
 
+# Stage 2 — DCA Contract Layer + Form ✅
+
+## What shipped
+
+- Jupiter DCA contract layer (`buildCreateDcaTx`, `buildCloseDcaTx`) — builds unsigned transactions
+- Mint allowlist (SOL, USDC, USDT) with hard safety caps
+- DCA Create and Close forms with status states (building, signing, error, success)
+- Devnet integration script proving the transaction pipeline works
+- 22 new unit tests (total: 53)
+- CI runs 53 tests
+
+## Files created
+
+src/lib/allowlist.ts                  Mint allowlist + decimals
+src/lib/validateDca.ts                Input validation + atomic units
+src/chain/dca.ts                      **The contract layer** — builds unsigned tx
+src/components/DcaForm.tsx            Create form with status states
+src/components/CloseDcaForm.tsx       Close form
+src/app/dca/page.tsx                  DCA route
+tests/unit/allowlist.test.ts          16 tests
+tests/unit/dca.test.ts                6 tests
+tests/devnet/dca-create.ts            Mock devnet integration (see Issue 5)
+
+## Files replaced
+
+src/app/page.tsx                      Added "Create DCA →" link
+
+## Test results
+
+Test Files  4 passed (4)
+     Tests  53 passed (53)
+  Duration  ~4s
+
+## Architecture note
+
+The DCA contract layer (`src/chain/dca.ts`) has three critical invariants:
+
+1. **It never signs.** Returns `VersionedTransaction`; the caller signs.
+2. **It never sends.** The UI calls `sendTransaction` from the wallet adapter.
+3. **It validates everything.** Mint allowlist, amount caps, cycle bounds — all checked before the SDK is called.
+
+The unit tests mock `@jup-ag/dca-sdk` so they run in milliseconds. The devnet integration script proves the transaction signing/sending pipeline works end-to-end.
+
+---
+
+## Stage 2 Issues Encountered
+
+### Issue 1 — Vitest hoisting error in `dca.test.ts`
+
+**Symptom:**
+```
+ReferenceError: Cannot access 'mockCreateDcaV2' before initialization
+```
+
+**Cause:** Vitest hoists `vi.mock()` calls to the top of the file, before variables are initialized. The mock tried to reference `mockCreateDcaV2` before the `const` declaration ran.
+
+**Fix:** Use `vi.hoisted()`:
+```ts
+const { mockCreateDcaV2, mockCloseDca } = vi.hoisted(() => ({
+  mockCreateDcaV2: vi.fn(),
+  mockCloseDca: vi.fn(),
+}));
+```
+
+**Lesson:** Any variable used inside a `vi.mock` factory must be declared with `vi.hoisted()`.
+
+---
+
+### Issue 2 — `next/link` crashes component tests
+
+**Symptom:**
+```
+Error: Element type is invalid: expected a string ... but got: undefined.
+Check the render method of `Home`.
+```
+
+**Cause:** Stage 2 added `<Link>` to `page.tsx`. In Vitest (jsdom), there is no Next.js router context, so `Link` resolves to `undefined`.
+
+**Fix:** Mock `next/link` in the test file:
+```tsx
+vi.mock('next/link', () => {
+  const MockLink = ({ children, href }: any) => <a href={href}>{children}</a>;
+  return { default: MockLink, Link: MockLink };
+});
+```
+
+---
+
+### Issue 3 — `requestAirdrop` returns 410 Gone (devnet faucet closed)
+
+**Symptom:**
+```
+Error: 410 Gone: {"jsonrpc":"2.0","error":{"code": 410, "message":"The RPC faucet is closed on this cluster..."}}
+```
+
+**Cause:** Solana has permanently closed the public RPC faucet on devnet. `connection.requestAirdrop()` no longer works.
+
+**Fix:** Generate a wallet, fund it manually via `https://faucet.solana.com`, and load the keypair from a local JSON file (`test-wallet.json`) in the test script.
+
+**Lesson:** Never rely on `requestAirdrop` for automated testing. Use a pre-funded wallet file or a local validator.
+
+---
+
+### Issue 4 — `inAmount must be greater than inAmountPerCycle` (BN vs BigInt)
+
+**Symptom:** Passing `0.1` total and `0.02` per cycle threw an SDK error saying the per-cycle amount was too large.
+
+**Cause:** The Jupiter DCA SDK expects `BigInt` for amounts, not `BN`. The `.gt()` comparison inside the SDK failed when comparing different BigNumber class instances.
+
+**Fix:** Convert `BN` to `BigInt` right before calling the SDK:
+```ts
+inAmount: BigInt(inAmount.toString()),
+inAmountPerCycle: BigInt(inAmountPerCycle.toString()),
+```
+
+---
+
+### Issue 5 — Jupiter DCA program is not deployed on devnet
+
+**Symptom:**
+```
+SendTransactionError: Simulation failed. Message: Transaction simulation failed: Attempt to load a program that does not exist.
+```
+
+**Cause:** The Jupiter DCA program ID (`DCA265...`) is deployed on **mainnet-beta**, not devnet. The SDK attempts to invoke it, but the program does not exist on the devnet cluster.
+
+**Fix:** For the devnet MVP, the integration script uses a mock transaction (a simple SOL transfer) to prove the signing and sending pipeline works. The real DCA logic remains in `src/chain/dca.ts` for a future mainnet deployment.
+
+**Lesson:** Always verify that the program you are calling is actually deployed on your target cluster. A devnet-only MVP must mock mainnet-only dependencies.
+
+---
+
+## Stage 2 Lessons
+
+1. **Unsigned transactions are the core pattern.** The app builds, the wallet signs. No private keys touch the server.
+2. **Validation belongs before the SDK call.** A bad mint or oversized cycle should throw before `createDcaV2` is invoked.
+3. **Devnet has limits.** The DCA program is mainnet-only, and the faucet is closed. The MVP must mock these to demonstrate the flow.
+
+---
+
+## Tweet Drafts — Stage 2
+
+### Tweet 2.1 (shipped)
+```
+Stage 2 done. ✅
+
+On-chain DCA contract layer built:
+• Validates SOL/USDC amounts
+• Enforces a 0.5 SOL safety cap
+• Builds unsigned transactions for Phantom to sign
+
+53 tests passing. CI green. Cost still $0.
+```
+
+### Tweet 2.2 (the contract layer)
+```
+The DCA contract layer is 50 lines of TypeScript.
+
+It:
+• validates mints against an allowlist
+• converts human amounts to atomic units
+• calls Jupiter's SDK to build an unsigned tx
+
+It does NOT:
+• sign
+• send
+• hold keys
+
+Unsigned transaction is the whole security model.
+```
+
+### Tweet 2.3 (the devnet reality)
+```
+Hit a wall on devnet today.
+
+Jupiter's DCA program is mainnet-only.
+Attempting to call it on devnet throws "program does not exist".
+
+So I mocked the integration test with a simple SOL transfer.
+
+The contract layer is built and unit-tested. The devnet demo proves the signing pipeline works. The real program waits for mainnet.
+
+Honest > hype.
+```
+
+### Tweet 2.4 (recap)
+```
+Stage 2 recap:
+
+Shipped:
+• DCA contract layer (create + close)
+• Allowlist + validation + safety caps
+• 22 new tests (53 total)
+• Mock devnet integration script
+
+Cost: $0
+Time: ~5 hours
+Bugs: 5 (mocking, faucets, BN vs BigInt, missing program)
+
+Stage 3 (rebalance construction) starts next.
+```
+
+---
+
+## Stage 2 Metrics
+
+| Metric | Value |
+| --- | --- |
+| New files | 8 |
+| Files replaced | 1 |
+| New tests | 22 |
+| Total tests | 53 |
+| CI time | ~18s |
+| Bugs | 5 |
+| Cost | $0 |
+| Time | ~5 hours |
+
 
