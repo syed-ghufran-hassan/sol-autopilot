@@ -1,3 +1,5 @@
+// vitest.config.mts
+
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
@@ -9,6 +11,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/unit/**/*.test.tsx', 'tests/unit/**/*.test.ts'],
+    // Remove the pool and server.deps.inline lines
   },
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, './src') },

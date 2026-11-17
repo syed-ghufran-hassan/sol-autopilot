@@ -26,3 +26,9 @@ jobs:
 
       - name: Run unit tests
         run: npm run test:unit
+
+      # ADD THIS BLOCK:
+      - name: Verify Next.js Build
+        run: npm run build
+        env:
+          GITHUB_PAGES: 'false' # Build for Vercel/standard Node environment
