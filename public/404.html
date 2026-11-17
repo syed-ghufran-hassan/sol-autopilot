@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <script>
+      // Strip the basePath, preserve the rest of the path + query.
+      var path = window.location.pathname.replace('/sol-autopilot', '');
+      window.location.replace('/sol-autopilot/?p=' + encodeURIComponent(path));
+    </script>
+  </head>
+</html>
