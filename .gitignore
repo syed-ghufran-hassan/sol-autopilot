@@ -1,16 +1,7 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # dependencies
 /node_modules
 /.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-
-!.env.example
+.pnp.js
 
 # testing
 /coverage
@@ -18,27 +9,38 @@
 # next.js
 /.next/
 /out/
+next-env.d.ts
+*.tsbuildinfo
 
 # production
 /build
 
 # misc
 .DS_Store
+Thumbs.db
 *.pem
+*.log
 
 # debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# local env files
+.env
+.env*.local
 
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
+
+# 🚨 CRITICAL: Solana / Secret Keys 🚨
 test-wallet.json
+*.json.key
+keypair.json
+
+# IDE / Editor
+.vscode/
+.idea/
