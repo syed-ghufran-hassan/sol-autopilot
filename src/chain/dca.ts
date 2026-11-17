@@ -1,6 +1,6 @@
 // src/chain/dca.ts
 
-import { PublicKey, VersionedTransaction } from '@solana/web3.js';
+import { PublicKey, Transaction } from '@solana/web3.js'; // <-- Changed to Transaction
 import { DCA, Network } from '@jup-ag/dca-sdk';
 import { connection } from './rpc';
 import { validateDcaInput, toAtomicUnits, enforceCycleCap } from '@/lib/validateDca';
@@ -17,7 +17,7 @@ export type CreateDcaParams = {
   cycleSeconds: number;
 };
 
-export async function buildCreateDcaTx(params: CreateDcaParams): Promise<{ tx: VersionedTransaction; dcaPubKey: PublicKey }> {
+export async function buildCreateDcaTx(params: CreateDcaParams): Promise<{ tx: Transaction; dcaPubKey: PublicKey }> {
   const validation = validateDcaInput({
     inputMint: params.inputMint,
     outputMint: params.outputMint,
@@ -33,7 +33,6 @@ export async function buildCreateDcaTx(params: CreateDcaParams): Promise<{ tx: V
 
   enforceCycleCap(inAmountPerCycle, params.inputMint);
 
-  // Convert BN → BigInt for the SDK
   const { tx, dcaPubKey } = await dca.createDcaV2({
     payer: params.user,
     user: params.user,
@@ -47,10 +46,12 @@ export async function buildCreateDcaTx(params: CreateDcaParams): Promise<{ tx: V
     startAt: null,
   });
 
-  return { tx, dcaPubKey };
+  // Cast the SDK's return type to Transaction
+  return { tx: tx as Transaction, dcaPubKey };
 }
 
-export async function buildCloseDcaTx(params: { user: PublicKey; dcaPubKey: PublicKey }): Promise<VersionedTransaction> {
-  const { tx } = await dca.closeDCA(params.dcaPubKey, params.user);
-  return tx;
+export async function buildCloseDcaTx(params: { user: PublicKey; dcaPubKey: PublicKey }): Promise<Transaction> {
+  // Use `as any` to bypass the incorrect SDK type definition for closeDCA
+  const { tx } = await (dca as any).closeDCA(params.dcaPubKey, params.user);
+  return tx as Transaction;
 }

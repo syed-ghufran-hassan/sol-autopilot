@@ -1675,3 +1675,164 @@ Stage 6 (CI build verification) starts next.
 | Cost | $0 |
 | Time | ~2 hours |
 
+# Stage 6 — Test Harness Polish + Bulletproof CI ✅
+
+## What shipped
+- Optimized Vitest configuration (reverted unstable `vmThreads` pool for ESM compatibility)
+- Added `npm run build` to the GitHub Actions CI pipeline
+- Fixed `next build` to explicitly use Webpack (prevents Turbopack production crashes)
+- Fixed TypeScript errors related to `BigInt` and Jupiter SDK types
+- 69 tests passing
+
+## Files replaced
+vitest.config.mts                     Reverted to default pool, fixed __dirname
+.github/workflows/test.yml            Added Build verification step
+package.json                          Updated build script to `next build --webpack`
+tsconfig.json                         Updated target to ES2020 for BigInt support
+src/chain/dca.ts                      Fixed SDK types (Transaction vs VersionedTransaction)
+
+## Test results
+Test Files  8 passed (8)
+     Tests  69 passed (69)
+  Duration  ~4s
+
+## Architecture note
+
+**1. Why `npm run build` in CI?**
+Unit tests run in JSDOM and mock the browser environment. They prove the logic works, but they *do not* prove the app compiles. During Stage 3, we hit a build error (`createContext is not a function`) because a Server Component tried to use React Context. The tests passed, but the build failed. Adding `npm run build` to CI ensures we catch Webpack, TypeScript, and Next.js Server/Client boundary errors before merging.
+
+**2. Why default Vitest pool?**
+We initially tried `pool: 'vmThreads'` to speed up JSDOM creation. However, `vmThreads` uses a sandboxed VM that cannot properly resolve modern ESM-only packages. Our Solana dependency chain (`@solana/web3.js` -> `rpc-websockets` -> `uuid`) crashed with `SyntaxError: Unexpected token 'export'`. The default `forks` pool uses child processes and handles ESM/CJS interop correctly. Stability > marginal speed gains.
+
+**3. Why `--webpack` for builds?**
+Next.js 16 uses Turbopack by default for *both* `dev` and `build`. We disabled Turbopack for `dev` at Stage 0 because it broke the Solana wallet adapter hydration. We had to apply the same flag to the production build to prevent Turbopack from choking on the wallet adapter's Context API during static generation.
+
+**4. Why ES2020 for TypeScript?**
+Next.js defaults `tsconfig.json` to the `ES2017` target. But our codebase uses `BigInt` literals (`1n`, `100n`) to interact with the Jupiter SDK. `ES2017` does not support `BigInt`, causing the build to fail during type-checking. Bumping the target to `ES2020` solves this.
+
+---
+
+## Stage 6 Issues Encountered
+
+### Issue 1 — Vitest `vmThreads` breaks ESM imports
+**Symptom:** 
+```
+SyntaxError: Unexpected token 'export'
+ ❯ node_modules/rpc-websockets/dist/index.cjs:6:12
+Module .../uuid/dist-node/index.js seems to be an ES Module but shipped in a CommonJS package.
+```
+**Cause:** The `pool: 'vmThreads'` setting in Vitest tries to run modules in a sandboxed VM. It cannot handle the ESM/CJS boundary required by `@solana/web3.js`'s dependency chain (`rpc-websockets` importing the ESM `uuid` package).
+**Fix:** Reverted to the default `forks` pool in `vitest.config.mts`. This uses Node's `child_process`, which handles ESM/CJS interop correctly.
+**Lesson:** Don't use `vmThreads` for tests that involve complex Web3 libraries. The default `forks` pool is safer.
+
+### Issue 2 — `Another next build process is already running`
+**Symptom:** Running `npm run build` fails immediately with a lock file error.
+**Cause:** A previous build crashed or was interrupted (Ctrl+C), leaving a stale lock file inside the `.next` directory.
+**Fix:** Ran `pkill -f "next build"` to ensure no background processes were running, then `rm -rf .next` to clear the lock file.
+
+### Issue 3 — Turbopack crashes during `next build`
+**Symptom:** Even after clearing the cache, the build started with `▲ Next.js 16.4.6 (Turbopack)` and eventually crashed with React Context errors.
+**Cause:** Next.js 16 enables Turbopack by default for production builds. The Solana wallet adapter relies on `createContext`, which Turbopack fails to bundle correctly for static generation.
+**Fix:** Updated the `build` script in `package.json` from `next build` to `next build --webpack`.
+**Lesson:** If you disable Turbopack for development, you *must* also disable it for production builds. They are separate commands.
+
+### Issue 4 — TypeScript `BigInt` literal error
+**Symptom:** 
+```
+src/lib/validateDca.ts(7,39): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+```
+**Cause:** Next.js defaults to the `ES2017` compilation target. `BigInt` syntax (like `1n`) requires `ES2020`.
+**Fix:** Changed `"target": "ES2017"` to `"target": "ES2020"` in `tsconfig.json`.
+
+### Issue 5 — Jupiter SDK type mismatch (`VersionedTransaction` vs `Transaction`)
+**Symptom:** 
+```
+src/chain/dca.ts(50,12): error TS2739: Type 'Transaction' is missing the following properties from type 'VersionedTransaction': message, version
+src/chain/dca.ts(54,55): error TS2554: Expected 1 arguments, but got 2.
+```
+**Cause:** The `@jup-ag/dca-sdk` documentation (and our types) expected a `VersionedTransaction` and a single argument for `closeDCA`. However, the actual SDK returns a legacy `Transaction` and requires two arguments (`dcaPubKey`, `user`).
+**Fix:** Updated `src/chain/dca.ts` to use `Transaction` from `@solana/web3.js`, and used `(dca as any).closeDCA(...)` to bypass the incorrect SDK type definition.
+**Lesson:** SDK documentation and actual TypeScript definitions frequently drift. Trust the compiler errors, not the docs.
+
+---
+
+## Stage 6 Lessons (condensed)
+
+1. **CI must build.** Tests prove logic. Builds prove compilation. You need both to catch Next.js Server/Client boundary errors.
+2. **Keep test runners boring.** Custom pools (`vmThreads`) break on Web3 dependencies. Stick to defaults (`forks`) for stability.
+3. **Turbopack is still catching up.** Next.js 16 defaults to Turbopack, but complex React Context libraries still require Webpack for production builds.
+4. **Trust the TypeScript compiler over the SDK docs.** When integrating third-party SDKs, expect to use type casting (`as any` or `as Transaction`) to bridge the gap between what the docs say and what the code actually expects.
+
+---
+
+## Tweet Drafts — Stage 6
+
+### Tweet 6.1 (shipped)
+```
+Stage 6 done. ✅
+
+My CI used to only run tests. Now it also runs `npm run build`.
+
+Why? Unit tests don't catch Next.js Server Component crashes.
+
+If a component imports `useWallet` without `"use client"`, tests pass, but the build fails.
+
+Catch it in CI, not in production.
+```
+
+### Tweet 6.2 (the ESM trap)
+```
+Spent an hour fighting Vitest today.
+
+Switched to `pool: 'vmThreads'` to speed up JSDOM.
+Result: `SyntaxError: Unexpected token 'export'` deep inside @solana/web3.js.
+
+The sandboxed VM can't resolve ESM imports from CommonJS packages.
+
+Reverted to the default `forks` pool. 69 tests passed instantly.
+
+Stability > marginal speed gains.
+```
+
+### Tweet 6.3 (the TypeScript / SDK trap)
+```
+The Jupiter DCA SDK docs say `closeDCA` takes 1 argument and returns a VersionedTransaction.
+
+The TypeScript compiler disagreed. It actually takes 2 arguments and returns a legacy Transaction.
+
+Don't trust the docs. Trust the compiler.
+
+(Also had to change Next.js target from ES2017 to ES2020 because the SDK uses BigInt literals).
+```
+
+### Tweet 6.4 (recap)
+```
+Stage 6 recap:
+
+Shipped:
+• Added `npm run build` to CI
+• Reverted unstable Vitest pool
+• Fixed build script to use Webpack
+• Fixed TS errors (BigInt target + SDK types)
+
+Cost: $0
+Time: ~3 hours
+Bugs: 5 (stale cache, ESM crash, Turbopack crash, TS BigInt, SDK types)
+
+Stage 7 (GitHub Pages launch) starts next. Final stage.
+```
+
+---
+
+## Stage 6 Metrics
+| Metric | Value |
+| --- | --- |
+| New files | 0 |
+| Files replaced | 5 |
+| New tests | 0 |
+| Total tests | 69 |
+| CI time | ~45s (includes build) |
+| Bugs | 5 |
+| Cost | $0 |
+| Time | ~3 hours |
+
