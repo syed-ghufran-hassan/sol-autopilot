@@ -2,12 +2,13 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { SOL_MINT, USDC_MINT_DEVNET } from '@/chain/assets';
 import { computeRebalanceLegs } from '@/rules/rebalance';
-import { fetchSwapQuote, fetchSwapInstructions } from '@/chain/swap';
+import { fetchSwapInstructions } from '@/chain/swap';
+import { fetchSwapQuoteCached } from '@/lib/quoteCache'; // <-- Use the cache
 import { decodeInstructions, type DecodedInstruction } from '@/chain/decode';
 import { NoRouteState } from './NoRouteState';
 
@@ -20,6 +21,13 @@ export function RebalanceForm() {
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [preview, setPreview] = useState<any>(null);
   const [decodedIxs, setDecodedIxs] = useState<DecodedInstruction[] | null>(null);
+
+  // Add Demo Mode prefill
+  useEffect(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('demo')) {
+      setTargetSol('80');
+    }
+  }, []);
 
   async function handleCheck() {
     if (!publicKey) return;
@@ -59,11 +67,11 @@ export function RebalanceForm() {
         ? BigInt(Math.floor((leg.amountUsd / solPrice) * Math.pow(10, 9)))
         : BigInt(Math.floor(leg.amountUsd * Math.pow(10, 6)));
 
-      const quoteResult = await fetchSwapQuote(inputMint, outputMint, amountAtomic);
+      // Use the cached quote fetcher here
+      const quoteResult = await fetchSwapQuoteCached(inputMint, outputMint, amountAtomic);
 
       if (!quoteResult.ok) {
         setStatus('error');
-        // Notice this is the NEW error format
         setErrorDetail(`${quoteResult.reason}: ${quoteResult.detail}`);
         return;
       }

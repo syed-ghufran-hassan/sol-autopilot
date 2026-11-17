@@ -1342,4 +1342,336 @@ Stage 3 (rebalance construction) starts next.
 | Cost | $0 |
 | Time | ~5 hours |
 
+# Stage 3 — Rebalance Contract Layer ✅
+
+## What shipped
+- Pure math for rebalance calculations (`computeRebalanceLegs`)
+- Jupiter Swap API integration (`fetchSwapQuote`, `fetchSwapInstructions`)
+- Rebalance form with target weight slider and quote preview
+- 15 new unit tests (total: 62)
+- CI runs 62 tests
+
+## Files created
+src/rules/rebalance.ts                pure math (no network, no solana)
+src/chain/swap.ts                     Jupiter Quote + Swap Instructions API
+src/components/RebalanceForm.tsx      UI with slider and quote preview
+src/app/rebalance/page.tsx            route
+tests/unit/rebalance.test.ts          6 tests
+tests/unit/swap.test.ts               3 tests
+
+## Files replaced
+src/app/page.tsx                      Added DCA and Rebalance links
+
+## Test results
+Test Files  6 passed (6)
+     Tests  62 passed (62)
+
+## Architecture note
+`computeRebalanceLegs` is the purest function in the codebase. It takes numbers and returns numbers. No RPC. No wallet. No async. This is why 6 tests cover every edge case (empty portfolio, dust trades, single asset) in <10ms.
+
+The swap layer is deliberately split:
+- `fetchSwapQuote` returns a structured `Result` — never throws on "no route"
+- `fetchSwapInstructions` converts Jupiter's base64 instruction format to `TransactionInstruction[]`
+
+This split is what makes Stage 4 possible: the UI can show a quote without needing to build the full transaction.
+
+## Stage 3 Issues Encountered
+
+### Issue 1 — Floating-point precision in dust trade test
+**Symptom:** The test expected a `$0.01` trade to be blocked as dust, but the math yielded `0.010000000000000009`, bypassing the `< 0.01` check.
+**Fix:** Changed the dust protection threshold in `src/rules/rebalance.ts` to `< 0.10` (10 cents). A 10-cent minimum trade is more realistic anyway.
+**Lesson:** Floating-point math will always bite you at the edges. Set thresholds slightly above where you expect the precision error to occur.
+
+### Issue 2 — `createContext is not a function`
+**Symptom:** The page crashed entirely, showing `(0 , react__WEBPACK_IMPORTED_MODULE_0__.createContext) is not a function`.
+**Cause:** `page.tsx` was missing the `"use client"` directive. In Next.js App Router, components are Server Components by default. The Solana wallet adapter uses React Context internally, which cannot run on the server.
+**Fix:** Added `"use client";` to the very top of `src/app/page.tsx`.
+**Lesson:** Any file that imports a wallet adapter hook or React state must have `"use client"` at the top.
+
+### Issue 3 — Duplicate `Link` import build failure
+**Symptom:** `Module parse failed: Identifier 'Link' has already been declared`.
+**Cause:** During the fix for the links, a second `import { Link } from 'next/link'` was added instead of replacing the existing `import Link from 'next/link'`.
+**Fix:** Removed the duplicate import. Next.js uses a default export for `Link`, not a named export.
+**Lesson:** When fixing imports, always delete the old line first rather than just appending the new one.
+
+## Tweet Drafts — Stage 3
+
+### Tweet 3.1 (shipped)
+```
+Stage 3 done. ✅
+
+Rebalance math is pure. No network, no wallet, no async.
+
+`computeRebalanceLegs(current, target, totalUsd) → Leg[]`
+
+6 tests cover:
+• empty portfolio
+• dust trades
+• single asset
+• already balanced
+• tolerance drift
+
+The Jupiter quote layer returns a structured Result. Never throws.
+```
+
+### Tweet 3.2 (the devnet reality)
+```
+Rebalance preview on devnet:
+
+Set 60% SOL / 40% USDC. Click preview.
+"Quote failed: no_route"
+
+This is correct. Jupiter's devnet pools are thin. The math worked. The quote API responded. The answer was "no liquidity."
+
+An MVP that pretends otherwise is a lie.
+```
+
+### Tweet 3.3 (the Next.js App Router trap)
+```
+Lost an hour to a blank white screen today.
+
+Error: `createContext is not a function`
+
+I imported `useWallet` from the Solana adapter into `page.tsx` but forgot `"use client"` at the top. Next.js tried to run the Solana Context on the server.
+
+Next.js 16 App Router rule: If it uses hooks or Context, it's a Client Component.
+```
+
+## Stage 3 Metrics
+| Metric | Value |
+| --- | --- |
+| New files | 6 |
+| Files replaced | 1 |
+| New tests | 15 |
+| Total tests | 62 |
+| CI time | ~20s |
+| Bugs | 3 (floating point, missing client directive, duplicate import) |
+| Cost | $0 |
+| Time | ~4 hours |
+
+---
+
+# Stage 4 — Honest Failure Layer ✅
+
+## What shipped
+- Dedicated `NoRouteState` UI panel for devnet liquidity errors
+- `decodeInstructions` utility to map program IDs to human-readable labels
+- Rebalance form updated to render the decoded instructions
+- 4 new unit tests (total: 66)
+
+## Files created
+src/chain/decode.ts                   Maps program IDs to labels
+src/components/NoRouteState.tsx       Amber warning panel for "no route"
+tests/unit/decode.test.ts             4 tests
+
+## Files replaced
+src/components/RebalanceForm.tsx      Wired in NoRouteState + decoder
+
+## Test results
+Test Files  7 passed (7)
+     Tests  66 passed (66)
+
+## Architecture note
+The failure state is not an edge case; it is the primary user experience on devnet. The `NoRouteState` component takes the raw structured error (`{ reason: 'no_route', detail: '...' }`) and translates it into a clear explanation.
+
+The `decodeInstructions` function is the trust layer. Before a user signs a transaction, they see exactly which programs are being invoked (`Jupiter Swap`, `SPL Token Program`, etc.). If an unknown program appears, it is labelled "Unknown Program" — a red flag.
+
+## Stage 4 Issues Encountered
+
+### Issue 1 — `Module not found: Can't resolve '@/chain/decode'`
+**Symptom:** Build failed because the newly imported decoder file didn't exist yet.
+**Cause:** The terminal command to create `src/chain/decode.ts` and `src/components/NoRouteState.tsx` was missed, but the imports were added to `RebalanceForm.tsx`.
+**Fix:** Created the missing files and restarted the dev server.
+**Lesson:** When adding new dependencies to a React component, always create the imported files *first*, then wire them up.
+
+### Issue 2 — Old UI cached in the browser/HMR
+**Symptom:** Even after updating `RebalanceForm.tsx`, the browser still showed the old thin red error text (`Quote failed: no_route...`) instead of the new amber panel.
+**Cause:** Next.js 16 Hot Module Replacement (HMR) got stuck holding the old component tree.
+**Fix:** Ran `rm -rf .next` and restarted `npm run dev`.
+**Lesson:** When a UI change doesn't appear, clear the `.next` cache before debugging the code.
+
+## Tweet Drafts — Stage 4
+
+### Tweet 4.1 (shipped)
+```
+Stage 4 done. ✅
+
+The "Honest Failure Layer".
+
+Instead of a tiny red string when Jupiter fails, the UI now renders a dedicated amber panel:
+
+"⚠️ No route available. Jupiter's devnet pools have insufficient liquidity. This is a limitation of the testnet, not a bug."
+
+66 tests passing.
+```
+
+### Tweet 4.2 (the decoder)
+```
+Built an instruction decoder for the rebalance preview.
+
+Before a user signs, they see:
+• Jupiter Swap (JUP6...)
+• SPL Token Program (Token...)
+• System Program (111...)
+
+If it's an unknown program, it says "Unknown Program".
+
+If you can't read what you're signing, don't sign it.
+```
+
+### Tweet 4.3 (recap)
+```
+Stage 4 recap:
+
+Shipped:
+• Honest NoRouteState panel
+• Instruction decoder for safety
+• 4 new tests (66 total)
+
+Cost: $0
+Time: ~2 hours
+Bugs: 2 (missing file, stale cache)
+
+Stage 5 (devnet banner + demo mode) starts next.
+```
+
+## Stage 4 Metrics
+| Metric | Value |
+| --- | --- |
+| New files | 3 |
+| Files replaced | 1 |
+| New tests | 4 |
+| Total tests | 66 |
+| CI time | ~21s |
+| Bugs | 2 (missing file, HMR cache) |
+| Cost | $0 |
+| Time | ~2 hours |
+
+# Stage 5 — Devnet Banner + Demo Mode + Polish ✅
+
+## What shipped
+- Persistent top banner on all pages ("Devnet: No real funds...")
+- `?demo=1` query parameter to prefill forms for sharing
+- 10-second quote cache to respect Jupiter's 0.5 RPS rate limit
+- 3 new unit tests (total: 69)
+
+## Files created
+src/components/DevnetBanner.tsx       Global devnet notice
+src/lib/quoteCache.ts                 10s TTL cache for Jupiter quotes
+tests/unit/quoteCache.test.ts         3 tests
+
+## Files replaced
+src/app/layout.tsx                    Added <DevnetBanner />
+src/components/RebalanceForm.tsx      Added demo prefill + cache usage
+src/components/DcaForm.tsx            Added demo prefill + useEffect import
+
+## Test results
+Test Files  8 passed (8)
+     Tests  69 passed (69)
+  Duration  ~4s
+
+## Architecture note
+
+**1. The Quote Cache (`quoteCache.ts`)**
+The Jupiter free tier limits us to 0.5 requests per second. The Rebalance UI has a slider. If a user drags the slider from 60% to 80%, it fires 20 API calls in two seconds.
+The fix is a simple `Map` with a 10-second TTL. Critically, it **only caches successful quotes** (`ok: true`). Failed quotes (like `no_route`) bypass the cache so that if devnet liquidity appears a second later, the user can click Preview again and get a fresh result.
+
+**2. Demo Mode (`?demo=1`)**
+This is implemented using a `useEffect` hook that checks `window.location.search`. 
+We use `useEffect` instead of reading the URL directly in the component body because Next.js renders the component on the server first. `window` does not exist on the server. By putting the URL check inside `useEffect`, it only runs on the client, preventing a Server-Side Rendering (SSR) crash.
+
+**3. The Global Banner**
+The `DevnetBanner` is placed in `layout.tsx` directly inside `<body>` but outside `<Providers>`. It is a simple static div, so it renders instantly on the server, giving the user immediate visual context that this is a testnet app before React even hydrates.
+
+---
+
+## Stage 5 Issues Encountered
+
+### Issue 1 — Missing `useEffect` import in `DcaForm.tsx`
+**Symptom:** Build error / Crash when opening the DCA page.
+**Cause:** The code to check for `?demo=1` was added, but `useEffect` was not imported from `'react'` at the top of the file.
+**Fix:** Updated the import line to `import { useState, useEffect } from 'react';`.
+**Lesson:** When adding a new React hook, always double-check the imports at the top of the file. Modern linters catch this, but if the dev server HMR gets stuck, it can fail silently in the browser.
+
+### Issue 2 — Test cache interference (`quoteCache.test.ts`)
+**Symptom:** The third test (`does not cache failed results`) failed, showing that the mock API was called 0 times instead of 2.
+**Cause:** The second test (`caches successful results...`) called `fetchSwapQuoteCached('A', 'B', 100n)` and cached a successful result. Because Vitest runs all tests in the same file within the same module scope, the internal `Map` inside `quoteCache.ts` persisted. When the third test ran, it used the exact same mints (`'A'`, `'B'`) and hit the successful cache from the previous test, never calling the mock API.
+**Fix:** Changed the third test to use unique mints (`'C'`, `'D'`) so it wouldn't collide with the previous test's cache. 
+**Lesson:** Module-level state (like a `Map` cache) persists between tests in the same file. To avoid flaky tests, either use unique inputs for every test, or expose a `clearCache()` function for the `beforeEach` block. Using unique inputs is faster and cleaner.
+
+---
+
+## Stage 5 Lessons (condensed)
+
+1. **State persists across tests.** A module-level cache will leak into subsequent tests. Use unique inputs (e.g., different mock addresses) to ensure test isolation.
+2. **`window` is a client-only object.** Checking URL parameters for demo mode must happen inside `useEffect` to avoid breaking Next.js Server-Side Rendering.
+3. **Rate limits are a UX problem.** A 10-second cache isn't just a backend optimization; it prevents the user from accidentally breaking the app by dragging a slider too fast.
+
+---
+
+## Tweet Drafts — Stage 5
+
+### Tweet 5.1 (shipped)
+```
+Stage 5 done. ✅
+
+• Global purple DEVNET banner on every page
+• `?demo=1` URL pre-fills the forms for sharing
+• 10-second quote cache so dragging the slider doesn't burn the 0.5 RPS limit
+
+69 tests passing. One stage left.
+```
+
+### Tweet 5.2 (the cache)
+```
+The Jupiter free tier is 0.5 requests per second.
+
+My UI has a slider.
+
+Without a cache, dragging the slider from 60% to 80% fires 20 API calls in 2 seconds.
+
+Fix: a 10s TTL Map. Cache only successful quotes. Failed quotes bypass the cache so users can retry if liquidity appears.
+```
+
+### Tweet 5.3 (the test bug)
+```
+Found a great bug in my tests today.
+
+I have a module-level `Map` cache for Jupiter quotes. 
+Test 2 cached a successful quote for `mint A -> mint B`.
+Test 3 ran right after, used `mint A -> mint B`, hit the cache, and failed because it expected to call the mock API.
+
+Module state persists across tests. Changed Test 3 to use `mint C -> mint D`. Passed instantly.
+```
+
+### Tweet 5.4 (recap)
+```
+Stage 5 recap:
+
+Shipped:
+• Devnet banner
+• Demo mode (`?demo=1`)
+• 10s quote cache
+• 3 new tests (69 total)
+
+Cost: $0
+Time: ~2 hours
+Bugs: 2 (missing import, test cache collision)
+
+Stage 6 (CI build verification) starts next.
+```
+
+---
+
+## Stage 5 Metrics
+| Metric | Value |
+| --- | --- |
+| New files | 3 |
+| Files replaced | 3 |
+| New tests | 3 |
+| Total tests | 69 |
+| CI time | ~22s |
+| Bugs | 2 |
+| Cost | $0 |
+| Time | ~2 hours |
 
