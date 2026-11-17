@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
 
 // Mock next/link to provide BOTH default and named exports
@@ -70,28 +70,36 @@ describe('Stage 0 & 1 — Wallet Gate & Portfolio', () => {
     expect(screen.getByText(expected)).toBeInTheDocument();
   });
 
-  it('shows the "connect a wallet" prompt when disconnected', () => {
+  it('shows the "connect a wallet" prompt when disconnected', async () => {
     mockUseWallet.mockReturnValue({ connected: false, publicKey: null });
     render(<Home />);
-    expect(screen.getByText(/connect a wallet to get started/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/connect a wallet to get started/i)).toBeInTheDocument();
+    });
   });
 
-  it('does NOT show the portfolio panel when disconnected', () => {
+  it('does NOT show the portfolio panel when disconnected', async () => {
     mockUseWallet.mockReturnValue({ connected: false, publicKey: null });
     render(<Home />);
-    expect(screen.queryByText(/portfolio value · mainnet estimate/i)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText(/portfolio value · mainnet estimate/i)).not.toBeInTheDocument();
+    });
   });
 
-  it('shows the full pubkey and portfolio panel when connected', () => {
+  it('shows the full pubkey and portfolio panel when connected', async () => {
     mockUseWallet.mockReturnValue({ connected: true, publicKey: TEST_PUBKEY });
     render(<Home />);
-    expect(screen.getByText(/portfolio value · mainnet estimate/i)).toBeInTheDocument();
-    expect(screen.getByText(TEST_PUBKEY.toBase58())).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/portfolio value · mainnet estimate/i)).toBeInTheDocument();
+      expect(screen.getByText(TEST_PUBKEY.toBase58())).toBeInTheDocument();
+    });
   });
 
-  it('always displays the cluster name as api.devnet.solana.com when connected', () => {
+  it('always displays the cluster name as api.devnet.solana.com when connected', async () => {
     mockUseWallet.mockReturnValue({ connected: true, publicKey: TEST_PUBKEY });
     render(<Home />);
-    expect(screen.getByText(/api\.devnet\.solana\.com/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/api\.devnet\.solana\.com/)).toBeInTheDocument();
+    });
   });
 });

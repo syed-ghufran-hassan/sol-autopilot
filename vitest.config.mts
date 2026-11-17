@@ -11,6 +11,6 @@ export default defineConfig({
     include: ['tests/unit/**/*.test.tsx', 'tests/unit/**/*.test.ts'],
   },
   resolve: {
-    alias: { '@': path.resolve(__dirname, './src') },
+    alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
 });

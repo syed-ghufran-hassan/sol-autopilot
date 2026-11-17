@@ -1,26 +1,27 @@
 // src/app/page.tsx
 
-'use client';
+"use client";
 
+import Link from 'next/link';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletButton } from '@/components/WalletButton';
 import { TokenTable } from '@/components/TokenTable';
 import { usePortfolio } from '@/hooks/usePortfolio';
 import { formatUsd } from '@/lib/format';
-import {Link} from 'next/link';
 
 export default function Home() {
   const { connected, publicKey } = useWallet();
   const { holdings, totalUsd, loading, error, refresh } = usePortfolio();
 
   return (
-    <main className="min-h-screen p-8">
+    <main className="min-h-screen p-8 bg-white">
       <header className="flex items-center justify-between max-w-4xl mx-auto mb-12">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">sol-autopilot</h1>
           <p className="text-sm text-neutral-500 mt-1">
-            devnet · stage 2 — portfolio + DCA ·{' '}
-            <Link href="/dca" className="underline hover:text-neutral-900">Create DCA →</Link>
+            devnet · stage 3 — portfolio + rules ·{' '}
+            <Link href="/dca" className="underline hover:text-neutral-900">DCA →</Link>{' '}
+            <Link href="/rebalance" className="underline hover:text-neutral-900">Rebalance →</Link>
           </p>
         </div>
         <WalletButton />
